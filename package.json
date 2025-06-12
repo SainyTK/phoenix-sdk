@@ -1,0 +1,40 @@
+{
+  "name": "@arbit-x/phoenix-sdk",
+  "version": "0.1.0",
+  "description": "JavaScript/TypeScript SDK for Phoenix market data and orderbook information",
+  "main": "dist/phoenix_sdk.js",
+  "module": "dist/phoenix_sdk.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/**/*",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "wasm-pack build --target web --out-dir dist",
+    "test": "wasm-pack test --node",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SainyTK/phoenix-sdk.git"
+  },
+  "keywords": [
+    "phoenix",
+    "sdk",
+    "orderbook",
+    "market data",
+    "webassembly",
+    "wasm",
+    "cryptocurrency",
+    "trading"
+  ],
+  "author": "Arbit-X",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/SainyTK/phoenix-sdk/issues"
+  },
+  "homepage": "https://github.com/SainyTK/phoenix-sdk#readme",
+  "devDependencies": {
+    "wasm-pack": "^0.12.1"
+  }
+} 

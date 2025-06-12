@@ -1,11 +1,11 @@
-# @arbit-x/drift-sdk Development Tasks
+# @arbit-x/phoenix-sdk Development Tasks
 
-This document outlines the tasks needed to implement the @arbit-x/drift-sdk package according to the requirements specified in the PRD and README.
+This document outlines the tasks needed to implement the @arbit-x/phoenix-sdk package according to the requirements specified in the PRD and README.
 
 ## Project Setup Tasks
 
 1. **Initialize Project Structure**
-   - [x] Create GitHub repository at https://github.com/SainyTK/drift-sdk
+   - [x] Create GitHub repository at https://github.com/SainyTK/phoenix-sdk
    - [x] Initialize Rust project with Cargo.toml
    - [x] Create initial README.md with basic installation and usage instructions
 
@@ -64,7 +64,7 @@ This document outlines the tasks needed to implement the @arbit-x/drift-sdk pack
 
 7. **Packaging**
    - [ ] Configure npm package.json correctly
-     - [ ] Set package name to @arbit-x/drift-sdk
+     - [ ] Set package name to @arbit-x/phoenix-sdk
      - [ ] Configure entry points
      - [ ] Set up peer dependencies
    - [ ] Set up WASM packaging

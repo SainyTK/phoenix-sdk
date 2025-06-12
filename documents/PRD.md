@@ -1,8 +1,8 @@
 # Product Requirements Document (PRD)
-## @arbit-x/drift-sdk
+## @arbit-x/phoenix-sdk
 
 ### Overview
-The drift-sdk is a JavaScript/TypeScript SDK built with Rust and WebAssembly (WASM) that provides access to market data and real-time orderbook information for trading applications. The SDK will be published to npm and used by JavaScript developers to integrate market data functionality into their applications.
+The phoenix-sdk is a JavaScript/TypeScript SDK built with Rust and WebAssembly (WASM) that provides access to market data and real-time orderbook information for trading applications. The SDK will be published to npm and used by JavaScript developers to integrate market data functionality into their applications.
 
 ### Technical Architecture
 - **Core Language**: Rust (for performance and safety)
@@ -14,7 +14,7 @@ The drift-sdk is a JavaScript/TypeScript SDK built with Rust and WebAssembly (WA
 ### Functional Requirements
 
 #### FR1: SDK Initialization
-- Developers can instantiate the SDK with `new DriftSDK()`
+- Developers can instantiate the SDK with `new PhoenixSDK()`
 - The constructor should initialize necessary connections and configurations
 - Should be lightweight and non-blocking during instantiation
 
@@ -101,7 +101,7 @@ interface OrderbooksResponse {
 ```
 
 ### Success Criteria
-1. Package successfully published to npm as @arbit-x/drift-sdk
+1. Package successfully published to npm as @arbit-x/phoenix-sdk
 2. All API methods work as specified in the examples
 3. WebSocket subscriptions maintain stable connections
 4. TypeScript definitions are automatically generated and accurate

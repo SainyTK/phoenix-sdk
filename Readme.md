@@ -1,6 +1,104 @@
-# @arbit-x/drift-sdk
+# Phoenix SDK
 
-A high-performance JavaScript/TypeScript SDK for accessing market data and real-time orderbook information, built with Rust and WebAssembly for optimal performance.
+A dual-purpose SDK for accessing Phoenix market data and orderbook information:
+- Pure Rust implementation for Rust applications
+- WebAssembly (WASM) bindings for JavaScript/TypeScript applications
+
+## Architecture
+
+This SDK is designed with a clean separation between core functionality and WebAssembly bindings:
+
+```
+src/
+├── core/           # Pure Rust implementation 
+│   ├── market.rs   # Market data functionality
+│   └── orderbook.rs # Orderbook management
+├── types/          # Shared data types
+├── wasm/           # WebAssembly bindings (compiled only for wasm32 target)
+│   └── bindings.rs # JavaScript interop layer
+└── lib.rs          # Entry point
+```
+
+### Benefits of this Architecture
+
+1. **Clean separation of concerns**:
+   - Core business logic is implemented in pure Rust
+   - WASM binding code is isolated in a separate module
+
+2. **Multiple usage patterns**:
+   - Use directly from Rust applications
+   - Use via WebAssembly in JavaScript/TypeScript applications
+
+3. **Conditional compilation**:
+   - WASM-specific code only compiles when targeting wasm32
+   - No WASM dependencies in pure Rust builds
+
+4. **Better testability**:
+   - Core functionality can be tested with standard Rust testing tools
+   - No need for wasm-bindgen-test for core logic
+
+## Usage
+
+### In Rust Projects
+
+```rust
+use phoenix_sdk::{PhoenixMarket, OrderbookManager};
+
+fn main() {
+    // Create a new Phoenix market client
+    let market = PhoenixMarket::default();
+    
+    // Fetch market symbols
+    let symbols = market.fetch_market_symbols().unwrap();
+    println!("Available markets: {:?}", symbols);
+    
+    // Fetch orderbooks
+    let orderbooks = market.fetch_order_books(
+        &[String::from("SOL_USDC")], 
+        Some(10)
+    ).unwrap();
+    println!("Orderbook: {:?}", orderbooks);
+}
+```
+
+### In JavaScript/TypeScript Projects
+
+```javascript
+import { PhoenixSDK } from 'phoenix-sdk';
+
+// Create a new SDK instance
+const sdk = new PhoenixSDK();
+
+// Fetch market symbols
+const markets = await sdk.fetchMarketSymbols();
+console.log('Available markets:', markets);
+
+// Fetch orderbook data
+const orderbooks = await sdk.fetchOrderBooks(['SOL_USDC'], 10);
+console.log('Orderbook:', orderbooks);
+
+// Subscribe to orderbook updates
+const subscriptionId = sdk.subscribeOrderBooks(['SOL_USDC'], (orderbook) => {
+  console.log('Orderbook update:', orderbook);
+});
+
+// Later, unsubscribe
+sdk.unsubscribeOrderBooks(subscriptionId);
+```
+
+## Building
+
+### For Rust
+
+```
+cargo build --release
+```
+
+### For WebAssembly
+
+```
+wasm-pack build --target web
+```
 
 ## 🚀 Features
 
@@ -14,13 +112,13 @@ A high-performance JavaScript/TypeScript SDK for accessing market data and real-
 ## 📦 Installation
 
 ```bash
-npm install @arbit-x/drift-sdk
+npm install @arbit-x/phoenix-sdk
 ```
 
 Or with yarn:
 
 ```bash
-yarn add @arbit-x/drift-sdk
+yarn add @arbit-x/phoenix-sdk
 ```
 
 ## 🔧 Usage
@@ -28,15 +126,15 @@ yarn add @arbit-x/drift-sdk
 ### 1. Initialize the SDK
 
 ```javascript
-import { DriftSDK } from '@arbit-x/drift-sdk';
+import { PhoenixSDK } from '@arbit-x/phoenix-sdk';
 
-const driftSDK = new DriftSDK();
+const phoenixSDK = new PhoenixSDK();
 ```
 
 ### 2. Fetch Market Symbols
 
 ```javascript
-const marketSymbols = await driftSDK.fetchMarketSymbols();
+const marketSymbols = await phoenixSDK.fetchMarketSymbols();
 console.log(marketSymbols);
 /*
 Output example:
@@ -50,7 +148,7 @@ Output example:
 ### 3. Fetch Orderbooks
 
 ```javascript
-const orderbooks = await driftSDK.fetchOrderBooks(["BTC_USDC"], 10); // limit = 10
+const orderbooks = await phoenixSDK.fetchOrderBooks(["BTC_USDC"], 10); // limit = 10
 console.log(orderbooks);
 /*
 Output example:
@@ -66,7 +164,7 @@ Output example:
 ### 4. Subscribe to Real-time Orderbook Updates
 
 ```javascript
-const subscriptionId = await driftSDK.subscribeOrderBooks(["BTC_USDC"], (orderbooks) => {
+const subscriptionId = await phoenixSDK.subscribeOrderBooks(["BTC_USDC"], (orderbooks) => {
   console.log(orderbooks);
   /*
   Output example:
@@ -83,15 +181,15 @@ const subscriptionId = await driftSDK.subscribeOrderBooks(["BTC_USDC"], (orderbo
 ### 5. Unsubscribe from Updates
 
 ```javascript
-await driftSDK.unsubscribeOrderBooks(subscriptionId);
+await phoenixSDK.unsubscribeOrderBooks(subscriptionId);
 ```
 
 ## 📚 API Reference
 
-### `DriftSDK`
+### `PhoenixSDK`
 
 #### Constructor
-- `new DriftSDK()`: Creates a new instance of the SDK
+- `new PhoenixSDK()`: Creates a new instance of the SDK
 
 #### Methods
 
@@ -136,8 +234,8 @@ Unsubscribes from real-time orderbook updates.
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/SainyTK/drift-sdk.git
-cd drift-sdk
+git clone https://github.com/SainyTK/phoenix-sdk.git
+cd phoenix-sdk
 ```
 
 2. Build (WASM):
@@ -166,7 +264,7 @@ npm test
 ### Project Structure
 
 ```
-drift-sdk/
+phoenix-sdk/
 ├── src/                 # Rust source code
 │   ├── lib.rs          # Main library entry point
 │   ├── sdk.rs          # SDK implementation
@@ -203,7 +301,7 @@ We welcome contributions! Please follow these steps:
 
 ### Reporting Issues
 
-If you find a bug or have a feature request, please [open an issue](https://github.com/SainyTK/drift-sdk/issues) on GitHub.
+If you find a bug or have a feature request, please [open an issue](https://github.com/SainyTK/phoenix-sdk/issues) on GitHub.
 
 ## 📄 License
 
@@ -211,17 +309,17 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🔗 Links
 
-- [GitHub Repository](https://github.com/SainyTK/drift-sdk)
-- [npm Package](https://www.npmjs.com/package/@arbit-x/drift-sdk)
-- [Documentation](https://github.com/SainyTK/drift-sdk#readme)
+- [GitHub Repository](https://github.com/SainyTK/phoenix-sdk)
+- [npm Package](https://www.npmjs.com/package/@arbit-x/phoenix-sdk)
+- [Documentation](https://github.com/SainyTK/phoenix-sdk#readme)
 
 ## 🆘 Support
 
 If you need help or have questions:
 
 - 📖 Check the documentation above
-- 🐛 [Report bugs](https://github.com/SainyTK/drift-sdk/issues)
-- 💬 [Start a discussion](https://github.com/SainyTK/drift-sdk/discussions)
+- 🐛 [Report bugs](https://github.com/SainyTK/phoenix-sdk/issues)
+- 💬 [Start a discussion](https://github.com/SainyTK/phoenix-sdk/discussions)
 
 ---
 

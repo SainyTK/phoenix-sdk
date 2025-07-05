@@ -11,6 +11,7 @@ pub struct PhoenixConfig {
     pub max_reconnect_attempts: u32,
     pub reconnect_delay_ms: u32,
     pub phoenix_api_config: PhoenixApiConfig,
+    pub use_real_data: bool, // New flag to control real vs mock data
 }
 
 impl Default for PhoenixConfig {
@@ -21,6 +22,7 @@ impl Default for PhoenixConfig {
             max_reconnect_attempts: 5,
             reconnect_delay_ms: 1000,
             phoenix_api_config: PhoenixApiConfig::default(),
+            use_real_data: true, // Default to real data
         }
     }
 }
@@ -33,6 +35,7 @@ impl PhoenixConfig {
             max_reconnect_attempts: 5,
             reconnect_delay_ms: 1000,
             phoenix_api_config: PhoenixApiConfig::devnet(),
+            use_real_data: true,
         }
     }
     
@@ -43,7 +46,27 @@ impl PhoenixConfig {
             max_reconnect_attempts: 5,
             reconnect_delay_ms: 1000,
             phoenix_api_config: PhoenixApiConfig::mainnet(),
+            use_real_data: true,
         }
+    }
+    
+    /// Create configuration for mock/testing mode
+    pub fn mock() -> Self {
+        PhoenixConfig {
+            api_base_url: "https://api.mainnet-beta.solana.com".to_string(),
+            ws_url: "wss://api.mainnet-beta.solana.com".to_string(),
+            max_reconnect_attempts: 5,
+            reconnect_delay_ms: 1000,
+            phoenix_api_config: PhoenixApiConfig::mock(),
+            use_real_data: false,
+        }
+    }
+    
+    /// Enable or disable real data fetching
+    pub fn with_real_data(mut self, use_real_data: bool) -> Self {
+        self.use_real_data = use_real_data;
+        self.phoenix_api_config.use_real_data = use_real_data;
+        self
     }
 }
 
@@ -64,7 +87,10 @@ pub struct PhoenixSDK {
 
 impl PhoenixSDK {
     /// Create a new Phoenix SDK instance with custom configuration
-    pub fn new(config: PhoenixConfig) -> Self {
+    pub fn new(mut config: PhoenixConfig) -> Self {
+        // Ensure API config matches SDK config
+        config.phoenix_api_config.use_real_data = config.use_real_data;
+        
         let phoenix_api_client = PhoenixApiClient::new(config.phoenix_api_config.clone());
         
         PhoenixSDK {
@@ -79,9 +105,14 @@ impl PhoenixSDK {
         }
     }
 
-    /// Create a new Phoenix SDK instance with default configuration
+    /// Create a new Phoenix SDK instance with default configuration (real data)
     pub fn default() -> Self {
         PhoenixSDK::new(PhoenixConfig::default())
+    }
+    
+    /// Create a new Phoenix SDK instance for testing with mock data
+    pub fn mock() -> Self {
+        PhoenixSDK::new(PhoenixConfig::mock())
     }
 
     /// Initialize the SDK
@@ -93,6 +124,7 @@ impl PhoenixSDK {
         // establish the websocket connection
         *self.connected.lock().unwrap() = true;
         
+        println!("🔥 Phoenix SDK initialized (Real data: {})", self.config.use_real_data);
         Ok(())
     }
 
@@ -425,5 +457,10 @@ impl PhoenixSDK {
     pub async fn get_phoenix_orderbook_legacy(&self, market_address: &str, depth: Option<u32>) -> Result<Orderbook, PhoenixError> {
         let phoenix_orderbook = self.fetch_phoenix_orderbook(market_address, depth).await?;
         Ok(self.phoenix_to_legacy_orderbook(&phoenix_orderbook))
+    }
+    
+    /// Check if using real data
+    pub fn is_using_real_data(&self) -> bool {
+        self.config.use_real_data
     }
 } 

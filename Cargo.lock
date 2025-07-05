@@ -2700,6 +2700,7 @@ version = "0.1.0"
 dependencies = [
  "anchor-client",
  "anchor-lang",
+ "bincode",
  "borsh 0.10.4",
  "console_error_panic_hook",
  "env_logger 0.10.2",
@@ -2713,6 +2714,7 @@ dependencies = [
  "serde_json",
  "solana-client",
  "solana-sdk",
+ "spl-token",
  "thiserror",
  "tokio",
  "tokio-tungstenite",

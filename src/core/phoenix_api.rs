@@ -1,4 +1,5 @@
 use crate::types::{PhoenixMarket, PhoenixOrderbook, PhoenixOrderbookEntry, PhoenixError, MarketStatus, MarketFees, MarketSizeParams};
+use crate::core::phoenix_real::PhoenixRealClient;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey};
 use std::collections::HashMap;
@@ -11,15 +12,18 @@ pub struct PhoenixApiConfig {
     pub phoenix_program_id: String,
     pub commitment: CommitmentConfig,
     pub timeout_seconds: u64,
+    pub use_real_data: bool, // New flag to switch between mock and real data
 }
 
 impl Default for PhoenixApiConfig {
     fn default() -> Self {
         Self {
-            solana_rpc_url: "https://api.mainnet-beta.solana.com".to_string(),
+            solana_rpc_url: std::env::var("PHOENIX_RPC_URL")
+                .unwrap_or_else(|_| "https://api.mainnet-beta.solana.com".to_string()),
             phoenix_program_id: "PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY".to_string(),
             commitment: CommitmentConfig::confirmed(),
             timeout_seconds: 30,
+            use_real_data: true, // Default to real data
         }
     }
 }
@@ -27,19 +31,33 @@ impl Default for PhoenixApiConfig {
 impl PhoenixApiConfig {
     pub fn devnet() -> Self {
         Self {
-            solana_rpc_url: "https://api.devnet.solana.com".to_string(),
+            solana_rpc_url: std::env::var("PHOENIX_RPC_URL")
+                .unwrap_or_else(|_| "https://api.devnet.solana.com".to_string()),
             phoenix_program_id: "PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY".to_string(),
             commitment: CommitmentConfig::confirmed(),
             timeout_seconds: 30,
+            use_real_data: true,
         }
     }
     
     pub fn mainnet() -> Self {
         Self {
+            solana_rpc_url: std::env::var("PHOENIX_RPC_URL")
+                .unwrap_or_else(|_| "https://api.mainnet-beta.solana.com".to_string()),
+            phoenix_program_id: "PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY".to_string(),
+            commitment: CommitmentConfig::confirmed(),
+            timeout_seconds: 30,
+            use_real_data: true,
+        }
+    }
+    
+    pub fn mock() -> Self {
+        Self {
             solana_rpc_url: "https://api.mainnet-beta.solana.com".to_string(),
             phoenix_program_id: "PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY".to_string(),
             commitment: CommitmentConfig::confirmed(),
             timeout_seconds: 30,
+            use_real_data: false, // Use mock data
         }
     }
 }
@@ -49,6 +67,7 @@ pub struct PhoenixApiClient {
     config: PhoenixApiConfig,
     rpc_client: RpcClient,
     http_client: reqwest::Client,
+    real_client: Option<PhoenixRealClient>,
 }
 
 impl PhoenixApiClient {
@@ -63,15 +82,84 @@ impl PhoenixApiClient {
             .build()
             .expect("Failed to create HTTP client");
         
+        // Initialize real client if using real data
+        let real_client = if config.use_real_data {
+            match PhoenixRealClient::new(config.solana_rpc_url.clone(), config.commitment) {
+                Ok(client) => Some(client),
+                Err(e) => {
+                    log::warn!("Failed to create real Phoenix client, falling back to mock: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        
         Self {
             config,
             rpc_client,
             http_client,
+            real_client,
         }
     }
     
-    /// Fetch all Phoenix markets
+    /// Fetch all Phoenix markets (real or mock based on configuration)
     pub async fn fetch_phoenix_markets(&self) -> Result<Vec<PhoenixMarket>, PhoenixError> {
+        if let Some(real_client) = &self.real_client {
+            // Use real implementation
+            real_client.fetch_real_phoenix_markets().await
+        } else {
+            // Use mock implementation
+            self.fetch_mock_phoenix_markets().await
+        }
+    }
+    
+    /// Fetch market details for a specific market (real or mock)
+    pub async fn get_market_details(&self, market_address: &str) -> Result<PhoenixMarket, PhoenixError> {
+        if let Some(real_client) = &self.real_client {
+            // Use real implementation
+            real_client.get_real_market_details(market_address).await
+        } else {
+            // Use mock implementation
+            self.get_mock_market_details(market_address).await
+        }
+    }
+    
+    /// Fetch orderbook for a specific market (real or mock)
+    pub async fn fetch_phoenix_orderbook(&self, market_address: &str, depth: Option<u32>) -> Result<PhoenixOrderbook, PhoenixError> {
+        if let Some(real_client) = &self.real_client {
+            // Use real implementation
+            real_client.fetch_real_phoenix_orderbook(market_address, depth).await
+        } else {
+            // Use mock implementation
+            self.fetch_mock_phoenix_orderbook(market_address, depth).await
+        }
+    }
+    
+    /// Fetch multiple orderbooks in parallel (real or mock)
+    pub async fn fetch_multiple_orderbooks(&self, market_addresses: &[&str], depth: Option<u32>) -> Result<HashMap<String, PhoenixOrderbook>, PhoenixError> {
+        if let Some(real_client) = &self.real_client {
+            // Use real implementation
+            real_client.fetch_multiple_real_orderbooks(market_addresses, depth).await
+        } else {
+            // Use mock implementation
+            self.fetch_multiple_mock_orderbooks(market_addresses, depth).await
+        }
+    }
+    
+    /// Check if a market exists (real or mock)
+    pub async fn market_exists(&self, market_address: &str) -> bool {
+        if let Some(real_client) = &self.real_client {
+            // Use real implementation
+            real_client.real_market_exists(market_address).await
+        } else {
+            // Use mock implementation
+            self.mock_market_exists(market_address).await
+        }
+    }
+    
+    /// Mock implementation: Fetch all Phoenix markets
+    async fn fetch_mock_phoenix_markets(&self) -> Result<Vec<PhoenixMarket>, PhoenixError> {
         // Since we don't have the actual Phoenix SDK integrated yet, we'll use the Phoenix API
         // In a real implementation, this would use solana_client to fetch program accounts
         
@@ -122,14 +210,14 @@ impl PhoenixApiClient {
         Ok(sample_markets)
     }
     
-    /// Fetch market details for a specific market
-    pub async fn get_market_details(&self, market_address: &str) -> Result<PhoenixMarket, PhoenixError> {
+    /// Mock implementation: Fetch market details for a specific market
+    async fn get_mock_market_details(&self, market_address: &str) -> Result<PhoenixMarket, PhoenixError> {
         // Validate the market address
         let _pubkey = Pubkey::from_str(market_address)
             .map_err(|e| PhoenixError::Parse(format!("Invalid market address: {}", e)))?;
         
         // Fetch all markets and find the one with matching address
-        let markets = self.fetch_phoenix_markets().await?;
+        let markets = self.fetch_mock_phoenix_markets().await?;
         
         markets
             .into_iter()
@@ -137,20 +225,45 @@ impl PhoenixApiClient {
             .ok_or_else(|| PhoenixError::MarketNotFound(market_address.to_string()))
     }
     
-    /// Fetch orderbook for a specific market
-    pub async fn fetch_phoenix_orderbook(&self, market_address: &str, depth: Option<u32>) -> Result<PhoenixOrderbook, PhoenixError> {
+    /// Mock implementation: Fetch orderbook for a specific market
+    async fn fetch_mock_phoenix_orderbook(&self, market_address: &str, depth: Option<u32>) -> Result<PhoenixOrderbook, PhoenixError> {
         // Validate the market address
         let _pubkey = Pubkey::from_str(market_address)
             .map_err(|e| PhoenixError::Parse(format!("Invalid market address: {}", e)))?;
         
         // Get market details first
-        let market = self.get_market_details(market_address).await?;
+        let market = self.get_mock_market_details(market_address).await?;
         
         // For now, we'll use a Phoenix API endpoint to fetch orderbook data
         // In a real implementation, this would parse the on-chain orderbook data
         let orderbook = self.fetch_orderbook_from_api(&market.name, depth).await?;
         
         Ok(orderbook)
+    }
+    
+    /// Mock implementation: Fetch multiple orderbooks
+    async fn fetch_multiple_mock_orderbooks(&self, market_addresses: &[&str], depth: Option<u32>) -> Result<HashMap<String, PhoenixOrderbook>, PhoenixError> {
+        let mut results = HashMap::new();
+        
+        // For now, we'll fetch them sequentially
+        // In a real implementation, we'd use futures::join_all for parallel fetching
+        for &market_address in market_addresses {
+            match self.fetch_mock_phoenix_orderbook(market_address, depth).await {
+                Ok(orderbook) => {
+                    results.insert(market_address.to_string(), orderbook);
+                }
+                Err(e) => {
+                    log::warn!("Failed to fetch orderbook for {}: {}", market_address, e);
+                }
+            }
+        }
+        
+        Ok(results)
+    }
+    
+    /// Mock implementation: Check if a market exists
+    async fn mock_market_exists(&self, market_address: &str) -> bool {
+        self.get_mock_market_details(market_address).await.is_ok()
     }
     
     /// Fetch orderbook from Phoenix API (helper method)
@@ -235,30 +348,5 @@ impl PhoenixApiClient {
         self.rpc_client
             .get_slot()
             .map_err(PhoenixError::SolanaClient)
-    }
-    
-    /// Fetch multiple orderbooks in parallel
-    pub async fn fetch_multiple_orderbooks(&self, market_addresses: &[&str], depth: Option<u32>) -> Result<HashMap<String, PhoenixOrderbook>, PhoenixError> {
-        let mut results = HashMap::new();
-        
-        // For now, we'll fetch them sequentially
-        // In a real implementation, we'd use futures::join_all for parallel fetching
-        for &market_address in market_addresses {
-            match self.fetch_phoenix_orderbook(market_address, depth).await {
-                Ok(orderbook) => {
-                    results.insert(market_address.to_string(), orderbook);
-                }
-                Err(e) => {
-                    log::warn!("Failed to fetch orderbook for {}: {}", market_address, e);
-                }
-            }
-        }
-        
-        Ok(results)
-    }
-    
-    /// Check if a market exists
-    pub async fn market_exists(&self, market_address: &str) -> bool {
-        self.get_market_details(market_address).await.is_ok()
     }
 }

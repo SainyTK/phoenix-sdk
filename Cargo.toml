@@ -1,7 +1,7 @@
 [package]
 name = "phoenix-sdk"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "A JavaScript/TypeScript SDK for accessing Phoenix market data and orderbook information"
 license = "MIT"
 

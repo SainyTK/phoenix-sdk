@@ -1,4 +1,5 @@
-use crate::types::{Orderbook, OrderbookEntry};
+use crate::types::{Orderbook, OrderbookEntry, PhoenixError};
+use crate::core::phoenix_api::{PhoenixApiClient, PhoenixApiConfig};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -12,43 +13,64 @@ pub struct Subscription {
     callbacks: Vec<Arc<OrderbookCallback>>,
 }
 
-/// Core orderbook functionality without any WASM dependencies
+/// Core orderbook functionality using phoenix_api.rs as the single source of truth
 pub struct OrderbookManager {
     url: String,
     subscriptions: HashMap<String, Subscription>,
     reconnect_attempts: u32,
     max_reconnect_attempts: u32,
     reconnect_delay_ms: u32,
+    phoenix_api_client: PhoenixApiClient,
+    symbol_to_address: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl OrderbookManager {
-    pub fn new(url: &str) -> Self {
-        OrderbookManager {
+    pub fn new(url: &str) -> Result<Self, PhoenixError> {
+        let config = PhoenixApiConfig::default();
+        let phoenix_api_client = PhoenixApiClient::new(config)?;
+        
+        Ok(OrderbookManager {
             url: url.to_string(),
             subscriptions: HashMap::new(),
             reconnect_attempts: 0,
             max_reconnect_attempts: 5,
             reconnect_delay_ms: 1000,
-        }
+            phoenix_api_client,
+            symbol_to_address: Arc::new(Mutex::new(HashMap::new())),
+        })
     }
 
     /// Default constructor with preset WebSocket URL
-    pub fn default() -> Self {
-        OrderbookManager::new("wss://api.mainnet-beta.solana.com")
+    pub fn default() -> Result<Self, PhoenixError> {
+        Self::new("wss://api.mainnet-beta.solana.com")
     }
 
-    /// Connect to the WebSocket in a Rust-native way
-    pub fn connect(&mut self) -> Result<(), String> {
-        // In a real implementation, this would use a Rust WebSocket client
-        // like tungstenite to connect
+    /// Connect to the WebSocket and initialize market mappings
+    pub async fn connect(&mut self) -> Result<(), PhoenixError> {
         println!("Connecting to WebSocket at {}", self.url);
+        
+        // Initialize symbol to address mapping
+        self.refresh_market_mappings().await?;
+        
         Ok(())
     }
 
-    /// Subscribe to orderbook updates
-    pub fn subscribe(&mut self, symbol: &str, callback: OrderbookCallback) -> Result<String, String> {
-        self.connect()?;
+    /// Refresh the symbol to address mapping from phoenix_api
+    async fn refresh_market_mappings(&self) -> Result<(), PhoenixError> {
+        let phoenix_markets = self.phoenix_api_client.fetch_phoenix_markets().await?;
+        let mut mappings = self.symbol_to_address.lock().unwrap();
+        mappings.clear();
         
+        for market in phoenix_markets {
+            let symbol = market.name.replace("/", "_");
+            mappings.insert(symbol, market.address);
+        }
+        
+        Ok(())
+    }
+
+    /// Subscribe to orderbook updates for a specific symbol
+    pub fn subscribe(&mut self, symbol: &str, callback: OrderbookCallback) -> Result<String, String> {
         // Generate a subscription ID
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -69,7 +91,7 @@ impl OrderbookManager {
         subscription.callbacks.push(Arc::new(callback));
         
         // In a real implementation, we would send a subscription message to the server
-        println!("Subscribed to {}", symbol);
+        println!("Subscribed to orderbook updates for {}", symbol);
         
         Ok(subscription_id)
     }
@@ -83,7 +105,7 @@ impl OrderbookManager {
             
             // Remove the subscription
             if self.subscriptions.remove(symbol).is_some() {
-                println!("Unsubscribed from {}", symbol);
+                println!("Unsubscribed from orderbook updates for {}", symbol);
                 return Ok(true);
             }
         }
@@ -94,58 +116,118 @@ impl OrderbookManager {
     /// Close the WebSocket connection
     pub fn close(&mut self) -> Result<(), String> {
         self.subscriptions.clear();
-        println!("WebSocket connection closed");
+        self.symbol_to_address.lock().unwrap().clear();
+        println!("OrderbookManager connection closed");
         Ok(())
     }
     
-    /// Simulate orderbook updates (for testing)
+    /// Fetch current orderbook for a symbol using phoenix_api
+    pub async fn fetch_orderbook(&self, symbol: &str, depth: Option<u32>) -> Result<Orderbook, PhoenixError> {
+        // Get market address from symbol
+        let market_address = {
+            let mappings = self.symbol_to_address.lock().unwrap();
+            mappings.get(symbol).cloned()
+        };
+        
+        match market_address {
+            Some(address) => {
+                // Fetch orderbook from phoenix_api
+                let phoenix_orderbook = self.phoenix_api_client.fetch_phoenix_orderbook(&address, depth).await?;
+                
+                // Convert to legacy format
+                let bids = phoenix_orderbook.bids.iter()
+                    .map(|entry| OrderbookEntry {
+                        price: entry.price,
+                        size: entry.size,
+                    })
+                    .collect();
+                
+                let asks = phoenix_orderbook.asks.iter()
+                    .map(|entry| OrderbookEntry {
+                        price: entry.price,
+                        size: entry.size,
+                    })
+                    .collect();
+                
+                Ok(Orderbook { bids, asks })
+            }
+            None => {
+                // Refresh mappings and try again
+                self.refresh_market_mappings().await?;
+                let mappings = self.symbol_to_address.lock().unwrap();
+                
+                match mappings.get(symbol) {
+                    Some(address) => {
+                        let phoenix_orderbook = self.phoenix_api_client.fetch_phoenix_orderbook(address, depth).await?;
+                        
+                        let bids = phoenix_orderbook.bids.iter()
+                            .map(|entry| OrderbookEntry {
+                                price: entry.price,
+                                size: entry.size,
+                            })
+                            .collect();
+                        
+                        let asks = phoenix_orderbook.asks.iter()
+                            .map(|entry| OrderbookEntry {
+                                price: entry.price,
+                                size: entry.size,
+                            })
+                            .collect();
+                        
+                        Ok(Orderbook { bids, asks })
+                    }
+                    None => {
+                        Err(PhoenixError::MarketNotFound(symbol.to_string()))
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Simulate orderbook updates using real phoenix_api data
+    pub async fn simulate_update(&self, symbol: &str) -> Result<(), PhoenixError> {
+        if let Some(subscription) = self.subscriptions.get(symbol) {
+            // Fetch current orderbook from phoenix_api
+            let orderbook = self.fetch_orderbook(symbol, Some(10)).await?;
+            
+            // Call all callbacks with the real orderbook data
+            for callback in &subscription.callbacks {
+                callback(&orderbook);
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Get available symbols
+    pub async fn get_available_symbols(&self) -> Result<Vec<String>, PhoenixError> {
+        let phoenix_markets = self.phoenix_api_client.fetch_phoenix_markets().await?;
+        let symbols: Vec<String> = phoenix_markets.iter()
+            .map(|market| market.name.replace("/", "_"))
+            .collect();
+        
+        Ok(symbols)
+    }
+}
+
+// Provide synchronous wrapper methods for backward compatibility
+impl OrderbookManager {
+    /// Synchronous wrapper for connect (for backward compatibility)
+    pub fn connect(&mut self) -> Result<(), String> {
+        println!("Connecting to WebSocket at {}", self.url);
+        Ok(())
+    }
+    
+    /// Synchronous simulate_update (for backward compatibility)
     pub fn simulate_update(&self, symbol: &str) -> Result<(), String> {
         if let Some(subscription) = self.subscriptions.get(symbol) {
-            // Create a simulated orderbook update
-            let mut bids = Vec::new();
-            let mut asks = Vec::new();
-            
-            // Generate some random bid/ask data
-            let base_bid = match symbol {
-                "SOL_USDC" => 19.92,
-                "BTC_USDC" => 28500.00,
-                _ => 100.0,
+            // Create a basic orderbook structure for backward compatibility
+            let orderbook = Orderbook {
+                bids: Vec::new(),
+                asks: Vec::new(),
             };
             
-            let base_ask = match symbol {
-                "SOL_USDC" => 19.97,
-                "BTC_USDC" => 28550.00,
-                _ => 101.0,
-            };
-            
-            // Generate 3 simulated bids with pseudo-random values
-            for i in 0..3 {
-                let price_offset = ((i as f64 * 0.037) % 0.1) - 0.05;
-                let size = (i as f64 * 1.5) % 5.0 + 1.0;
-                bids.push(OrderbookEntry {
-                    price: base_bid - (i as f64 * 0.01) + price_offset,
-                    size,
-                });
-            }
-            
-            // Generate 3 simulated asks with pseudo-random values
-            for i in 0..3 {
-                let price_offset = ((i as f64 * 0.041) % 0.1) - 0.05;
-                let size = (i as f64 * 1.7) % 5.0 + 1.0;
-                asks.push(OrderbookEntry {
-                    price: base_ask + (i as f64 * 0.01) + price_offset,
-                    size,
-                });
-            }
-            
-            // Sort bids descending and asks ascending
-            bids.sort_by(|a, b| b.price.partial_cmp(&a.price).unwrap());
-            asks.sort_by(|a, b| a.price.partial_cmp(&b.price).unwrap());
-            
-            // Create the orderbook
-            let orderbook = Orderbook { bids, asks };
-            
-            // Call all callbacks with the simulated orderbook
+            // Call all callbacks with the orderbook
             for callback in &subscription.callbacks {
                 callback(&orderbook);
             }

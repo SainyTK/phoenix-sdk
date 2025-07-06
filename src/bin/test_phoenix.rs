@@ -10,30 +10,29 @@ async fn main() -> Result<(), PhoenixError> {
     println!("🔥 Phoenix DEX API Integration Test");
     println!("=====================================");
     
-    // Determine configuration based on environment variables
-    let use_real_data = env::var("PHOENIX_USE_REAL_DATA")
-        .map(|v| v.to_lowercase() == "true" || v == "1")
-        .unwrap_or(true); // Default to real data
+    // Create mainnet configuration (only mainnet is supported now)
+    let config = PhoenixConfig::default();
     
-    let config = if env::var("PHOENIX_USE_DEVNET").is_ok() {
-        println!("Using Devnet configuration");
-        PhoenixConfig::devnet().with_real_data(use_real_data)
-    } else if env::var("PHOENIX_USE_MOCK").is_ok() || !use_real_data {
-        println!("Using Mock configuration");
-        PhoenixConfig::mock()
-    } else {
-        println!("Using Mainnet configuration");
-        PhoenixConfig::mainnet().with_real_data(use_real_data)
-    };
+    println!("Using Mainnet configuration with real data");
     
-    // Create SDK instance
-    let sdk = PhoenixSDK::new(config);
+    // Create SDK instance with error handling
+    let mut sdk = PhoenixSDK::new(config)?;
     
-    println!("📊 Data Source: {}", if sdk.is_using_real_data() { "Real On-chain Data" } else { "Mock Data" });
+    println!("📊 Data Source: Real On-chain Data (Mainnet only)");
     println!();
     
+    // Initialize the SDK
+    println!("🔧 Initializing SDK...");
+    match sdk.init().await {
+        Ok(_) => println!("✅ SDK initialized successfully"),
+        Err(e) => {
+            println!("❌ Error initializing SDK: {}", e);
+            return Err(e);
+        }
+    }
+    
     // Test 1: Fetch Phoenix markets
-    println!("📊 Test 1: Fetching Phoenix markets...");
+    println!("\n📊 Test 1: Fetching Phoenix markets...");
     match sdk.fetch_phoenix_markets().await {
         Ok(markets) => {
             println!("✅ Successfully fetched {} markets:", markets.len());
@@ -44,22 +43,17 @@ async fn main() -> Result<(), PhoenixError> {
                 println!("    Status: {:?}", market.status);
                 println!("    Fees: {}bps maker, {}bps taker", 
                          market.fees.maker_fee_bps, market.fees.taker_fee_bps);
-                
-                if sdk.is_using_real_data() {
-                    println!("    Sequence: {}", market.sequence_number);
-                    println!("    Authority: {}", market.authority);
-                    println!("    Base Lot Size: {}", market.size_params.base_lot_size);
-                    println!("    Quote Lot Size: {}", market.size_params.quote_lot_size);
-                    println!("    Tick Size: {}", market.size_params.tick_size);
-                }
+                println!("    Sequence: {}", market.sequence_number);
+                println!("    Authority: {}", market.authority);
+                println!("    Base Lot Size: {}", market.size_params.base_lot_size);
+                println!("    Quote Lot Size: {}", market.size_params.quote_lot_size);
+                println!("    Tick Size: {}", market.size_params.tick_size);
                 println!();
             }
         }
         Err(e) => {
             println!("❌ Error fetching markets: {}", e);
-            if sdk.is_using_real_data() {
-                println!("💡 Try running with PHOENIX_USE_MOCK=1 to test with mock data");
-            }
+            println!("💡 This might be due to network issues or rate limiting");
             return Err(e);
         }
     }
@@ -78,18 +72,11 @@ async fn main() -> Result<(), PhoenixError> {
             println!("  Base Lot Size: {}", market.size_params.base_lot_size);
             println!("  Quote Lot Size: {}", market.size_params.quote_lot_size);
             println!("  Tick Size: {}", market.size_params.tick_size);
-            
-            if sdk.is_using_real_data() {
-                println!("  📡 Fetched from: On-chain Solana data");
-            } else {
-                println!("  🏗️  Fetched from: Mock data source");
-            }
+            println!("  📡 Fetched from: On-chain Solana mainnet data");
         }
         Err(e) => {
             println!("❌ Error fetching market details: {}", e);
-            if sdk.is_using_real_data() {
-                println!("💡 This might be due to network issues or rate limiting");
-            }
+            println!("💡 This might be due to network issues or rate limiting");
         }
     }
     
@@ -105,31 +92,20 @@ async fn main() -> Result<(), PhoenixError> {
             println!("\n  📊 Bids:");
             for (i, bid) in orderbook.bids.iter().enumerate() {
                 println!("    {}: ${:.4} x {:.2}", i + 1, bid.price, bid.size);
-                if sdk.is_using_real_data() {
-                    println!("       (ticks: {}, lots: {})", bid.price_in_ticks, bid.size_in_base_lots);
-                }
+                println!("       (ticks: {}, lots: {})", bid.price_in_ticks, bid.size_in_base_lots);
             }
             
             println!("\n  📊 Asks:");
             for (i, ask) in orderbook.asks.iter().enumerate() {
                 println!("    {}: ${:.4} x {:.2}", i + 1, ask.price, ask.size);
-                if sdk.is_using_real_data() {
-                    println!("       (ticks: {}, lots: {})", ask.price_in_ticks, ask.size_in_base_lots);
-                }
+                println!("       (ticks: {}, lots: {})", ask.price_in_ticks, ask.size_in_base_lots);
             }
             
-            if sdk.is_using_real_data() {
-                println!("\n  📡 Data source: Real Phoenix on-chain orderbook");
-            } else {
-                println!("\n  🏗️  Data source: Generated mock orderbook");
-            }
+            println!("\n  📡 Data source: Real Phoenix on-chain orderbook");
         }
         Err(e) => {
             println!("❌ Error fetching orderbook: {}", e);
-            if sdk.is_using_real_data() {
-                println!("💡 This might be due to network issues, rate limiting, or account parsing errors");
-                println!("💡 Try running with PHOENIX_USE_MOCK=1 to test with mock data");
-            }
+            println!("💡 This might be due to network issues, rate limiting, or account parsing errors");
         }
     }
     
@@ -137,7 +113,6 @@ async fn main() -> Result<(), PhoenixError> {
     println!("\n📊 Test 4: Fetching multiple orderbooks...");
     let markets = [
         "4DoNfFBfF7UokCC2FQzriy7yHK6DY6NVdYpuekQ5pRgg", // SOL/USDC
-        "Ew9W18yHYdMySb5PFKryeGikqMNPXzSnaJ1pWVgWNKa6", // ETH/USDC (if it exists)
     ];
     
     match sdk.fetch_phoenix_orderbooks(&markets, Some(3)).await {
@@ -197,27 +172,59 @@ async fn main() -> Result<(), PhoenixError> {
         println!("❌ No cached market found");
     }
     
+    // Test 7: Test market existence check
+    println!("\n🔍 Test 7: Testing market existence check...");
+    let market_exists = sdk.phoenix_market_exists(sol_usdc_market).await;
+    println!("✅ Market {} exists: {}", sol_usdc_market, market_exists);
+    
+    // Test non-existent market
+    let fake_market = "1111111111111111111111111111111111111111111";
+    let fake_market_exists = sdk.phoenix_market_exists(fake_market).await;
+    println!("✅ Market {} exists: {}", fake_market, fake_market_exists);
+    
+    // Test 8: Test legacy market functions
+    println!("\n📊 Test 8: Testing legacy market functions...");
+    match sdk.fetch_markets() {
+        Ok(markets) => {
+            println!("✅ Legacy fetch_markets returned {} markets:", markets.len());
+            for market in &markets {
+                println!("  - {} (ID: {})", market.symbol, market.id);
+            }
+        }
+        Err(e) => {
+            println!("❌ Error with legacy fetch_markets: {}", e);
+        }
+    }
+    
+    // Test legacy orderbook fetch
+    match sdk.fetch_orderbook("SOL_USDC") {
+        Ok(orderbook) => {
+            println!("✅ Legacy fetch_orderbook returned:");
+            println!("  Bids: {} levels", orderbook.bids.len());
+            println!("  Asks: {} levels", orderbook.asks.len());
+        }
+        Err(e) => {
+            println!("❌ Error with legacy fetch_orderbook: {}", e);
+        }
+    }
+    
     // Final summary
     println!("\n🎉 Test Summary:");
     println!("================");
-    println!("📊 Data Source: {}", if sdk.is_using_real_data() { "Real On-chain Data" } else { "Mock Data" });
-    if sdk.is_using_real_data() {
-        println!("🌐 Network: {}", if env::var("PHOENIX_USE_DEVNET").is_ok() { "Devnet" } else { "Mainnet" });
-        println!("📡 Integration: Direct Phoenix program account parsing");
-        println!("🔗 Program ID: PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY");
-    } else {
-        println!("🏗️  Mode: Mock/Testing data generation");
-    }
-    
+    println!("📊 Data Source: Real On-chain Data (Mainnet only)");
+    println!("🌐 Network: Mainnet");
+    println!("📡 Integration: Direct Phoenix program account parsing");
+    println!("🔗 Program ID: PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY");
     println!("✅ All tests completed successfully!");
     
     // Usage instructions
     println!("\n💡 Usage Tips:");
     println!("==============");
-    println!("🔸 Use PHOENIX_USE_REAL_DATA=true for real on-chain data (default)");
-    println!("🔸 Use PHOENIX_USE_MOCK=1 for mock data testing");
-    println!("🔸 Use PHOENIX_USE_DEVNET=1 for devnet instead of mainnet");
-    println!("🔸 Combine flags: PHOENIX_USE_DEVNET=1 PHOENIX_USE_REAL_DATA=true");
+    println!("🔸 The SDK now only supports mainnet real data");
+    println!("🔸 Mock and devnet modes have been removed for consistency");
+    println!("🔸 All data is fetched from on-chain Phoenix program accounts");
+    println!("🔸 Use environment variable PHOENIX_RPC_URL to customize RPC endpoint");
+    println!("🔸 Example: PHOENIX_RPC_URL=https://api.mainnet-beta.solana.com");
     
     Ok(())
 }

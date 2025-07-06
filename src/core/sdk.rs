@@ -1,4 +1,5 @@
-use crate::types::{MarketSymbol, Orderbook, OrderbookEntry, WebSocketOrderbookUpdate};
+use crate::types::{MarketSymbol, Orderbook, OrderbookEntry, WebSocketOrderbookUpdate, PhoenixMarket, PhoenixOrderbook, PhoenixError};
+use crate::core::phoenix_api::{PhoenixApiClient, PhoenixApiConfig};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use rand::Rng;
@@ -9,6 +10,8 @@ pub struct PhoenixConfig {
     pub ws_url: String,
     pub max_reconnect_attempts: u32,
     pub reconnect_delay_ms: u32,
+    pub phoenix_api_config: PhoenixApiConfig,
+    pub use_real_data: bool, // New flag to control real vs mock data
 }
 
 impl Default for PhoenixConfig {
@@ -18,7 +21,52 @@ impl Default for PhoenixConfig {
             ws_url: "wss://api.mainnet-beta.solana.com".to_string(),
             max_reconnect_attempts: 5,
             reconnect_delay_ms: 1000,
+            phoenix_api_config: PhoenixApiConfig::default(),
+            use_real_data: true, // Default to real data
         }
+    }
+}
+
+impl PhoenixConfig {
+    pub fn devnet() -> Self {
+        PhoenixConfig {
+            api_base_url: "https://api.devnet.solana.com".to_string(),
+            ws_url: "wss://api.devnet.solana.com".to_string(),
+            max_reconnect_attempts: 5,
+            reconnect_delay_ms: 1000,
+            phoenix_api_config: PhoenixApiConfig::devnet(),
+            use_real_data: true,
+        }
+    }
+    
+    pub fn mainnet() -> Self {
+        PhoenixConfig {
+            api_base_url: "https://api.mainnet-beta.solana.com".to_string(),
+            ws_url: "wss://api.mainnet-beta.solana.com".to_string(),
+            max_reconnect_attempts: 5,
+            reconnect_delay_ms: 1000,
+            phoenix_api_config: PhoenixApiConfig::mainnet(),
+            use_real_data: true,
+        }
+    }
+    
+    /// Create configuration for mock/testing mode
+    pub fn mock() -> Self {
+        PhoenixConfig {
+            api_base_url: "https://api.mainnet-beta.solana.com".to_string(),
+            ws_url: "wss://api.mainnet-beta.solana.com".to_string(),
+            max_reconnect_attempts: 5,
+            reconnect_delay_ms: 1000,
+            phoenix_api_config: PhoenixApiConfig::mock(),
+            use_real_data: false,
+        }
+    }
+    
+    /// Enable or disable real data fetching
+    pub fn with_real_data(mut self, use_real_data: bool) -> Self {
+        self.use_real_data = use_real_data;
+        self.phoenix_api_config.use_real_data = use_real_data;
+        self
     }
 }
 
@@ -32,23 +80,39 @@ pub struct PhoenixSDK {
     orderbooks: Arc<Mutex<HashMap<String, Orderbook>>>,
     subscriptions: Arc<Mutex<HashMap<String, Vec<Arc<OrderbookUpdateCallback>>>>>,
     connected: Arc<Mutex<bool>>,
+    phoenix_api_client: PhoenixApiClient,
+    phoenix_markets: Arc<Mutex<HashMap<String, PhoenixMarket>>>,
+    phoenix_orderbooks: Arc<Mutex<HashMap<String, PhoenixOrderbook>>>,
 }
 
 impl PhoenixSDK {
     /// Create a new Phoenix SDK instance with custom configuration
-    pub fn new(config: PhoenixConfig) -> Self {
+    pub fn new(mut config: PhoenixConfig) -> Self {
+        // Ensure API config matches SDK config
+        config.phoenix_api_config.use_real_data = config.use_real_data;
+        
+        let phoenix_api_client = PhoenixApiClient::new(config.phoenix_api_config.clone());
+        
         PhoenixSDK {
             config,
             markets: Arc::new(Mutex::new(HashMap::new())),
             orderbooks: Arc::new(Mutex::new(HashMap::new())),
             subscriptions: Arc::new(Mutex::new(HashMap::new())),
             connected: Arc::new(Mutex::new(false)),
+            phoenix_api_client,
+            phoenix_markets: Arc::new(Mutex::new(HashMap::new())),
+            phoenix_orderbooks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    /// Create a new Phoenix SDK instance with default configuration
+    /// Create a new Phoenix SDK instance with default configuration (real data)
     pub fn default() -> Self {
         PhoenixSDK::new(PhoenixConfig::default())
+    }
+    
+    /// Create a new Phoenix SDK instance for testing with mock data
+    pub fn mock() -> Self {
+        PhoenixSDK::new(PhoenixConfig::mock())
     }
 
     /// Initialize the SDK
@@ -60,6 +124,7 @@ impl PhoenixSDK {
         // establish the websocket connection
         *self.connected.lock().unwrap() = true;
         
+        println!("🔥 Phoenix SDK initialized (Real data: {})", self.config.use_real_data);
         Ok(())
     }
 
@@ -305,5 +370,97 @@ impl PhoenixSDK {
         *self.connected.lock().unwrap() = false;
         
         Ok(())
+    }
+
+    // Phoenix DEX specific methods
+
+    /// Fetch Phoenix DEX markets
+    pub async fn fetch_phoenix_markets(&self) -> Result<Vec<PhoenixMarket>, PhoenixError> {
+        let markets = self.phoenix_api_client.fetch_phoenix_markets().await?;
+        
+        // Update the cache
+        let mut phoenix_markets = self.phoenix_markets.lock().unwrap();
+        phoenix_markets.clear();
+        for market in &markets {
+            phoenix_markets.insert(market.address.clone(), market.clone());
+        }
+        
+        Ok(markets)
+    }
+
+    /// Get Phoenix market details
+    pub async fn get_phoenix_market_details(&self, market_address: &str) -> Result<PhoenixMarket, PhoenixError> {
+        self.phoenix_api_client.get_market_details(market_address).await
+    }
+
+    /// Fetch Phoenix orderbook
+    pub async fn fetch_phoenix_orderbook(&self, market_address: &str, depth: Option<u32>) -> Result<PhoenixOrderbook, PhoenixError> {
+        let orderbook = self.phoenix_api_client.fetch_phoenix_orderbook(market_address, depth).await?;
+        
+        // Update the cache
+        let mut phoenix_orderbooks = self.phoenix_orderbooks.lock().unwrap();
+        phoenix_orderbooks.insert(market_address.to_string(), orderbook.clone());
+        
+        Ok(orderbook)
+    }
+
+    /// Fetch multiple Phoenix orderbooks
+    pub async fn fetch_phoenix_orderbooks(&self, market_addresses: &[&str], depth: Option<u32>) -> Result<HashMap<String, PhoenixOrderbook>, PhoenixError> {
+        let orderbooks = self.phoenix_api_client.fetch_multiple_orderbooks(market_addresses, depth).await?;
+        
+        // Update the cache
+        let mut phoenix_orderbooks = self.phoenix_orderbooks.lock().unwrap();
+        for (address, orderbook) in &orderbooks {
+            phoenix_orderbooks.insert(address.clone(), orderbook.clone());
+        }
+        
+        Ok(orderbooks)
+    }
+
+    /// Get cached Phoenix orderbook
+    pub fn get_cached_phoenix_orderbook(&self, market_address: &str) -> Option<PhoenixOrderbook> {
+        let phoenix_orderbooks = self.phoenix_orderbooks.lock().unwrap();
+        phoenix_orderbooks.get(market_address).cloned()
+    }
+
+    /// Get cached Phoenix market
+    pub fn get_cached_phoenix_market(&self, market_address: &str) -> Option<PhoenixMarket> {
+        let phoenix_markets = self.phoenix_markets.lock().unwrap();
+        phoenix_markets.get(market_address).cloned()
+    }
+
+    /// Check if Phoenix market exists
+    pub async fn phoenix_market_exists(&self, market_address: &str) -> bool {
+        self.phoenix_api_client.market_exists(market_address).await
+    }
+
+    /// Convert Phoenix orderbook to legacy format
+    pub fn phoenix_to_legacy_orderbook(&self, phoenix_orderbook: &PhoenixOrderbook) -> Orderbook {
+        let bids = phoenix_orderbook.bids.iter()
+            .map(|entry| OrderbookEntry {
+                price: entry.price,
+                size: entry.size,
+            })
+            .collect();
+        
+        let asks = phoenix_orderbook.asks.iter()
+            .map(|entry| OrderbookEntry {
+                price: entry.price,
+                size: entry.size,
+            })
+            .collect();
+        
+        Orderbook { bids, asks }
+    }
+
+    /// Get Phoenix orderbook in legacy format
+    pub async fn get_phoenix_orderbook_legacy(&self, market_address: &str, depth: Option<u32>) -> Result<Orderbook, PhoenixError> {
+        let phoenix_orderbook = self.fetch_phoenix_orderbook(market_address, depth).await?;
+        Ok(self.phoenix_to_legacy_orderbook(&phoenix_orderbook))
+    }
+    
+    /// Check if using real data
+    pub fn is_using_real_data(&self) -> bool {
+        self.config.use_real_data
     }
 } 
